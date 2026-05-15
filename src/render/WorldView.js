@@ -1,5 +1,6 @@
 import { ProceduralGround } from '../world/ProceduralGround.js'
 import { resolveTile } from '../world/resolve.js'
+import { getSheet } from './tiles.js'
 
 // Render 2D. Dibuja:
 //   1) ground procedural como fondo.
@@ -16,6 +17,7 @@ export class WorldView {
     this.store = store
     this.repOf = repOf
     this.camera = { x: 0, y: 0 } // centro en coords de tile
+    this.sheet = getSheet()
     this._raf = null
   }
 
@@ -50,21 +52,22 @@ export class WorldView {
     const rows = Math.ceil(h / tileSize) + 2
     const cx = Math.floor(camera.x - cols / 2)
     const cy = Math.floor(camera.y - rows / 2)
-    const offX = w / 2 - (camera.x - cx) * tileSize
-    const offY = h / 2 - (camera.y - cy) * tileSize
+    const offX = w / 2 - (camera.x - cx) * tileSize - tileSize / 2
+    const offY = h / 2 - (camera.y - cy) * tileSize - tileSize / 2
 
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const tx = cx + i
         const ty = cy + j
         const t = ground.tileAt(tx, ty)
-        ctx.fillStyle = ProceduralGround.colorFor(t.type)
-        ctx.fillRect(
-          Math.floor(offX + i * tileSize),
-          Math.floor(offY + j * tileSize),
-          tileSize,
-          tileSize
-        )
+        const px = Math.floor(offX + i * tileSize)
+        const py = Math.floor(offY + j * tileSize)
+        if (!this.sheet.draw(ctx, t.type, px, py, tileSize)) {
+          ctx.fillStyle = ProceduralGround.colorFor(t.type)
+          ctx.fillRect(px, py, tileSize, tileSize)
+        }
+        const proc = ground.proceduralObjectAt(tx, ty)
+        if (proc) this._drawProcedural(proc, px, py, tileSize)
       }
     }
 
@@ -109,32 +112,60 @@ export class WorldView {
     }
   }
 
+  _drawProcedural (proc, px, py, ts) {
+    if (this.sheet.draw(this.ctx, proc.kind, px, py, ts)) return
+    const ctx = this.ctx
+    if (proc.kind === 'rock') {
+      ctx.fillStyle = '#555'
+      ctx.beginPath(); ctx.arc(px + ts / 2, py + ts / 2, ts * 0.32, 0, Math.PI * 2); ctx.fill()
+    } else if (proc.kind === 'herb') {
+      ctx.fillStyle = '#1d8a3a'
+      ctx.beginPath(); ctx.arc(px + ts * 0.5, py + ts * 0.5, ts * 0.12, 0, Math.PI * 2); ctx.fill()
+    } else if (proc.kind === 'apple') {
+      ctx.fillStyle = '#c0392b'
+      ctx.beginPath(); ctx.arc(px + ts * 0.5, py + ts * 0.5, ts * 0.14, 0, Math.PI * 2); ctx.fill()
+    }
+  }
+
   _drawCell (r, px, py, ts) {
     const ctx = this.ctx
     if (r.ground.winner) {
-      ctx.fillStyle = ProceduralGround.colorFor(r.ground.winner.payload?.type || 'grass')
-      ctx.fillRect(px, py, ts, ts)
+      const t = r.ground.winner.payload?.type || 'grass'
+      if (!this.sheet.draw(ctx, t, px, py, ts)) {
+        ctx.fillStyle = ProceduralGround.colorFor(t)
+        ctx.fillRect(px, py, ts, ts)
+      }
     }
     if (r.prop.winner) {
-      ctx.fillStyle = '#5a3a1a'
-      ctx.fillRect(px + ts * 0.15, py + ts * 0.15, ts * 0.7, ts * 0.7)
+      const kind = r.prop.winner.payload?.kind || 'prop_chest'
+      if (!this.sheet.draw(ctx, kind, px, py, ts)) {
+        ctx.fillStyle = '#5a3a1a'
+        ctx.fillRect(px + ts * 0.15, py + ts * 0.15, ts * 0.7, ts * 0.7)
+      }
     }
     for (const it of r.items) {
-      const procedural = it.payload?.procedural
-      ctx.fillStyle = procedural ? '#ffd24a' : '#9b59ff'
-      ctx.beginPath()
-      ctx.arc(px + ts / 2, py + ts / 2, ts * 0.18, 0, Math.PI * 2)
-      ctx.fill()
+      const kind = it.payload?.kind
+      if (!this.sheet.draw(ctx, kind, px, py, ts)) {
+        ctx.fillStyle = it.payload?.procedural ? '#ffd24a' : '#9b59ff'
+        ctx.beginPath()
+        ctx.arc(px + ts / 2, py + ts / 2, ts * 0.18, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
     if (r.actors.winner) {
       const a = r.actors.winner
-      ctx.fillStyle = a.type === 'enemy' ? '#c0392b' : (a.type === 'npc' ? '#2ecc71' : '#3498db')
-      ctx.fillRect(px + ts * 0.25, py + ts * 0.1, ts * 0.5, ts * 0.8)
-      // "fantasmas" (otros actores subjetivos)
-      for (const ghost of r.actors.others) {
-        ctx.fillStyle = ghost.type === 'enemy' ? 'rgba(192,57,43,0.35)'
-          : (ghost.type === 'npc' ? 'rgba(46,204,113,0.35)' : 'rgba(52,152,219,0.35)')
+      if (!this.sheet.draw(ctx, a.type, px, py, ts)) {
+        ctx.fillStyle = a.type === 'enemy' ? '#c0392b' : (a.type === 'npc' ? '#2ecc71' : '#3498db')
         ctx.fillRect(px + ts * 0.25, py + ts * 0.1, ts * 0.5, ts * 0.8)
+      }
+      for (const ghost of r.actors.others) {
+        ctx.save()
+        ctx.globalAlpha = 0.35
+        if (!this.sheet.draw(ctx, ghost.type, px, py, ts)) {
+          ctx.fillStyle = ghost.type === 'enemy' ? '#c0392b' : (ghost.type === 'npc' ? '#2ecc71' : '#3498db')
+          ctx.fillRect(px + ts * 0.25, py + ts * 0.1, ts * 0.5, ts * 0.8)
+        }
+        ctx.restore()
       }
     }
   }

@@ -7,6 +7,10 @@ import { PeerLink } from './net/PeerLink.js'
 import { CombatHost } from './combat.js'
 import { initIdentity, getMyPubkey, repOf, repOfSync, warmRep } from './identity.js'
 import { makeObject } from './objects/standard.js'
+import { passableAt } from './world/collision.js'
+import TilePicker from './render/TilePicker.vue'
+
+const showPicker = ref(false)
 
 const canvasRef = ref(null)
 const status = ref('booting…')
@@ -25,17 +29,31 @@ function onKeyDown (e) {
   if (e.key === 'q') tryPlaceRock()
   if (e.key === 'e') trySummonSlime()
   if (e.key === 'f') tryAttackNearest()
+  if (e.key === 't') showPicker.value = !showPicker.value
+  if (e.key === 'Escape') showPicker.value = false
 }
 function onKeyUp (e) { keys.delete(e.key) }
 function onResize () { view?.resize() }
 
+function tryStep (dx, dy) {
+  // Ejes por separado para permitir sliding contra obstáculos.
+  const nx = view.camera.x + dx
+  if (passableAt(nx, view.camera.y, view.ground, store).passable) view.camera.x = nx
+  const ny = view.camera.y + dy
+  if (passableAt(view.camera.x, ny, view.ground, store).passable) view.camera.y = ny
+}
+
 function tickMove () {
   if (!view) return
-  const speed = 0.15
-  if (keys.has('ArrowUp') || keys.has('w')) view.camera.y -= speed
-  if (keys.has('ArrowDown') || keys.has('s')) view.camera.y += speed
-  if (keys.has('ArrowLeft') || keys.has('a')) view.camera.x -= speed
-  if (keys.has('ArrowRight') || keys.has('d')) view.camera.x += speed
+  const here = passableAt(view.camera.x, view.camera.y, view.ground, store)
+  const base = 0.15
+  const speed = base * (here.passable ? here.speed : 1)
+  let dx = 0, dy = 0
+  if (keys.has('ArrowUp') || keys.has('w')) dy -= speed
+  if (keys.has('ArrowDown') || keys.has('s')) dy += speed
+  if (keys.has('ArrowLeft') || keys.has('a')) dx -= speed
+  if (keys.has('ArrowRight') || keys.has('d')) dx += speed
+  if (dx || dy) tryStep(dx, dy)
   link?.setViewport({
     x0: Math.floor(view.camera.x) - 12,
     y0: Math.floor(view.camera.y) - 9,
@@ -137,9 +155,10 @@ onBeforeUnmount(() => {
 <template>
   <canvas ref="canvasRef" class="world"></canvas>
   <div class="hint">
-    WASD muévete · <b>Q</b> colocar roca · <b>E</b> summon slime · <b>F</b> atacar adyacente
+    WASD · <b>Q</b> roca · <b>E</b> summon · <b>F</b> atacar · <b>T</b> tile picker
     <div class="status">{{ status }}</div>
   </div>
+  <TilePicker v-if="showPicker" @close="showPicker = false" />
 </template>
 
 <style scoped>
