@@ -53,6 +53,8 @@
     <option value="">all categories</option>
   </select>
   <button id="exportCatBtn">Export catalog</button>
+  <button id="exportBiomes">Export biomes</button>
+  <button id="importBiomes">Import biomes</button>
   <span id="info" class="lbl"></span>
 </div>
 <div id="stage">
@@ -91,11 +93,6 @@
   <h3>Compatible biomes</h3>
   <div id="compatList"><div class="lbl">(pick a biome)</div></div>
 
-  <h3>Actions</h3>
-  <div class="row">
-    <button id="exportBiomes">Export biomes</button>
-    <button id="importBiomes">Import biomes</button>
-  </div>
 </div>
 
 <div id="hint">
@@ -118,6 +115,7 @@ const state = {
   activeBiome: null,
   activePos: null,
   tileBiome: {},       // "x,y" → {biome, pos}
+  biomeFilters: new Set(),  // biome ids whose tiles should remain bright
 };
 
 const POS_QUADS = {
@@ -170,13 +168,14 @@ function drawSheet () {
       sctx.drawImage(img, tx * STRIDE, ty * STRIDE, TILE, TILE, o.x, o.y, s, s);
     }
   }
-  if (state.filter) {
-    const isBiome = state.filter.includes(':');
+  if (state.filter || state.biomeFilters.size) {
     for (let ty = 0; ty < ROWS; ty++) {
       for (let tx = 0; tx < COLS; tx++) {
         const v = (state.catalog && state.catalog.tiles[`${tx},${ty}`]) || '';
-        const match = isBiome ? (v === state.filter) : (v.split(':')[0] === state.filter);
-        if (!match) {
+        const cls = state.tileBiome[`${tx},${ty}`];
+        const catOk = !state.filter || v.split(':')[0] === state.filter;
+        const bioOk = !state.biomeFilters.size || (cls && state.biomeFilters.has(cls.biome));
+        if (!(catOk && bioOk)) {
           const o = tileOrigin(tx, ty);
           sctx.fillStyle = 'rgba(0,0,0,0.6)';
           sctx.fillRect(o.x, o.y, s, s);
@@ -421,13 +420,32 @@ function renderBiomeList () {
   for (const b of state.biomes) {
     const div = document.createElement('div');
     div.className = 'biomeItem' + (b.id === state.activeBiome ? ' active' : '');
-    div.innerHTML = `<div class="swatch" style="background:${b.color}"></div><span style="flex:1">${b.id}</span><button data-act="del" title="delete">×</button>`;
+    const checked = state.biomeFilters.has(b.id) ? 'checked' : '';
+    b.kind = b.kind || 'normal';
+    const opts = ['normal','water','sand'].map(k =>
+      `<option value="${k}" ${b.kind===k?'selected':''}>${k}</option>`).join('');
+    div.innerHTML = `<input type="checkbox" data-act="filter" ${checked} title="filter to this biome"/>` +
+      `<div class="swatch" style="background:${b.color}"></div>` +
+      `<span style="flex:1">${b.id}</span>` +
+      `<select data-act="kind" title="physical type (engine speed)" style="background:#111;color:#eee;border:1px solid #444;font-size:11px">${opts}</select>` +
+      `<button data-act="del" title="delete">×</button>`;
+    div.addEventListener('change', e => {
+      if (e.target.dataset.act === 'kind') { b.kind = e.target.value; }
+    });
     div.addEventListener('click', e => {
+      if (e.target.dataset.act === 'filter') {
+        if (e.target.checked) state.biomeFilters.add(b.id);
+        else state.biomeFilters.delete(b.id);
+        drawSheet();
+        return;
+      }
+      if (e.target.dataset.act === 'kind') return;
       if (e.target.dataset.act === 'del') {
         if (confirm('Delete biome ' + b.id + '?')) {
           state.biomes = state.biomes.filter(x => x !== b);
           if (state.activeBiome === b.id) state.activeBiome = null;
           for (const k of Object.keys(state.tileBiome)) if (state.tileBiome[k].biome === b.id) delete state.tileBiome[k];
+          state.biomeFilters.delete(b.id);
           renderBiomeList(); renderCompat(); drawSheet(); drawUI();
         }
         return;
@@ -646,39 +664,41 @@ document.getElementById('importBiomes').addEventListener('click', () => {
 });
 
 // ---- catalog ----
-const BIOMES = ['water','sand','grass','dirt','stone'];
 async function loadCatalog () {
   try {
     const r = await fetch('tile_catalog.json');
     state.catalog = await r.json();
     const sel = document.getElementById('filter');
-    const gCat = document.createElement('optgroup'); gCat.label = 'category';
     for (const c of state.catalog._meta.categories) {
-      const o = document.createElement('option'); o.value = c; o.textContent = c; gCat.appendChild(o);
+      const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
     }
-    sel.appendChild(gCat);
-    const gBio = document.createElement('optgroup'); gBio.label = 'ground biome';
-    for (const b of BIOMES) {
-      const o = document.createElement('option'); o.value = 'ground:' + b;
-      o.textContent = b + (b === 'water' ? ' (impasable)' : b === 'sand' ? ' (lento)' : ' (normal)');
-      gBio.appendChild(o);
-    }
-    sel.appendChild(gBio);
     drawSheet();
   } catch (e) { console.warn('catalog load failed', e); }
 }
 
+const DEFAULT_BIOMES = [
+  { id:'water', color:'#2a6fdb', compat:['*'], kind:'water'  },
+  { id:'sand',  color:'#d9c878', compat:['*'], kind:'sand'   },
+  { id:'grass', color:'#3aa252', compat:['*'], kind:'normal' },
+  { id:'dirt',  color:'#7a5a3a', compat:['*'], kind:'normal' },
+  { id:'stone', color:'#888888', compat:['*'], kind:'normal' }
+];
+
 async function loadInitialBiomes () {
   try {
     const r = await fetch('tile_biomes.json');
-    if (!r.ok) return;
-    const data = await r.json();
-    state.biomes = data.biomes || [];
-    state.tileBiome = data.tileBiome || {};
-    state.activeBiome = state.biomes[0]?.id || null;
-    renderBiomeList(); renderCompat();
-    drawSheet(); drawUI();
+    if (r.ok) {
+      const data = await r.json();
+      state.biomes = data.biomes || [];
+      state.tileBiome = data.tileBiome || {};
+    }
   } catch (e) {}
+  if (!state.biomes.length) {
+    state.biomes = DEFAULT_BIOMES.map(b => ({ ...b, compat: [...b.compat] }));
+  }
+  state.activeBiome = state.biomes[0]?.id || null;
+  renderBiomeList(); renderCompat();
+  drawSheet(); drawUI();
 }
 
 renderBiomeList();

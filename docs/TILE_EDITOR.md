@@ -17,7 +17,14 @@ Si existe `tile_biomes.json` se carga al abrir el editor; **Export biomes** lo r
 
 ## Workflow
 
-1. **Crear biomas** (sidebar superior): id + color hex/preset → **+ Add**.
+1. **Biomas** (sidebar superior):
+   - 5 biomas precargados (`water`, `sand`, `grass`, `dirt`, `stone`) si no existe `tile_biomes.json` propio.
+   - **+ Add** para nuevos: id + color hex/preset.
+   - Cada fila tiene:
+     - `☐` checkbox de **filtro** — al marcar, solo los tiles clasificados con ese bioma quedan brillantes (combinable con el dropdown de categoría).
+     - swatch + id (click en el id la marca como bioma activo para pintar).
+     - select **kind** (`normal` / `water` / `sand`) — tipo físico que usa el motor para resolver paso/velocidad. `water` = impasable, `sand` = lento, `normal` = caminable. PEPITO `kind=water` se comporta como agua aunque tenga el color que quieras.
+     - `×` borra el bioma.
 2. **Marcar compatibilidad** en checkboxes (`*` = transparente).
 3. **Pintar posición** sobre tiles:
    - Click un botón de posición (29 disponibles)
@@ -27,7 +34,7 @@ Si existe `tile_biomes.json` se carga al abrir el editor; **Export biomes** lo r
    - Doble-click en cualquier botón del 3×3 → modo **ALL9**: el click siguiente sobre el sheet se trata como `C` y los 8 vecinos se asignan a sus posiciones relativas.
    - Doble-click en cualquier botón interno → modo **ALL4**: el click es la esquina superior-izquierda de un bloque 2×2 (`iSE iSW / iNE iNW` por la disposición Kenney).
    - Botón medio + drag → pan
-5. **Export biomes** descarga el JSON; reemplaza `public/tile_biomes.json` para persistir.
+5. **Export biomes** (barra superior, junto a *Export catalog*) descarga el JSON; reemplaza `public/tile_biomes.json` para persistir. **Import biomes** carga uno desde disco.
 
 ## Posiciones (29)
 
@@ -44,9 +51,30 @@ Si existe `tile_biomes.json` se carga al abrir el editor; **Export biomes** lo r
 
 Total = 9 + 4 + 1 + 3 + 3 + 4 + 1 + 4 = **29**.
 
-## Filtro de categorías (barra superior)
+## Filtros (barra superior + sidebar)
 
-El dropdown **Filter** sirve para 2 cosas:
-- Si elegís `all categories` → modo bioma normal.
-- Si elegís una categoría (`prop`, `item`, …) o bioma de ground (`ground:water` …) → **modo clasificación de catálogo**: click toggle la categoría del tile en `tile_catalog.json`. Útil para refinar etiquetas antes de la clasificación por bioma.
-- **Export catalog** descarga el catálogo actualizado.
+Dos ejes ortogonales, combinables (AND):
+
+- **Filter dropdown** (barra superior): categorías top-level del catálogo (`ground`, `prop`, `item`, `terrain_edge`, ...). Si elegís una, click toggle la categoría del tile en `tile_catalog.json` (modo clasificación de catálogo). `all categories` = sin filtro.
+- **Checkboxes de bioma** (sidebar): marcá uno o varios biomas para mostrar solo sus tiles clasificados.
+
+Botones de la barra:
+- **Export catalog** — descarga `tile_catalog.json` con las categorías editadas.
+- **Export biomes** — descarga `tile_biomes.json` (biomas + clasificaciones + kind).
+- **Import biomes** — carga un `tile_biomes.json` desde disco.
+
+## Estructura del JSON de biomas
+
+```json
+{
+  "biomes": [
+    { "id": "PEPITO", "color": "#2a6fdb", "compat": ["*"], "kind": "water" }
+  ],
+  "tileBiome": {
+    "3,1": { "biome": "PEPITO", "pos": "C" },
+    "2,0": { "biome": "PEPITO", "pos": "NW" }
+  }
+}
+```
+
+El motor lee `kind` para resolver paso, `compat` para autotile, y `pos` para elegir el tile correcto en cada celda del mundo según los vecinos.
